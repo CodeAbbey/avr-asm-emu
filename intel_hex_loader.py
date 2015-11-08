@@ -36,7 +36,7 @@ class HexLoader(object):
             offs = 9 + i * 4
             lo = int(line[offs:offs+2], 16)
             hi = int(line[offs+2:offs+4], 16)
-            self.words[self.seg + addr + i] = ((hi << 8) | lo)
+            self.words[self.seg + addr / 2 + i] = ((hi << 8) | lo)
     
     def printWords(self, count):
         for i in range(count):
