@@ -8,24 +8,33 @@ import json
 import base64
 import StringIO
 
-data = sys.stdin.read()
-data = json.loads(data)
+def main():
+    data = sys.stdin.read()
+    data = json.loads(data)
 
-hl = HexLoader(8192)
-hl.load(base64.b64decode(data['code']))
-ex = Executor(hl.words)
-for i in range(len(data['regs'])):
-    ex.regs[i] = data['regs'][i]
+    hl = HexLoader(8192)
+    hl.load(base64.b64decode(data['code']))
+    ex = Executor(hl.words)
+    for i in range(len(data['regs'])):
+        ex.regs[i] = data['regs'][i]
 
-ostdout = sys.stdout
-mstdout = StringIO.StringIO()
-sys.stdout = mstdout
-ex.run()
-sys.stdout = ostdout
+    ostdout = sys.stdout
+    mstdout = StringIO.StringIO()
+    sys.stdout = mstdout
+    sys.stdin = StringIO.StringIO(base64.b64decode(data['stdin']))
+    ex.run()
+    sys.stdout = ostdout
 
-res = {}
-res['regs'] = ex.regs
-res['stdout'] = base64.b64encode(mstdout.getvalue())
+    res = {}
+    res['regs'] = ex.regs
+    res['stdout'] = base64.b64encode(mstdout.getvalue())
+
+    return res
+    
+try:
+    res = main()
+except Exception as e:
+    res = {'error': str(e) + "\n(" + ', '.join([str(x) for x in e.args]) + ')'}
 
 print 'Content-Type: application/json'
 print ''
