@@ -4,6 +4,7 @@ class Executor(object):
     
     ip = 0
     sp = 0
+    flag_i = 0
     flag_t = 0
     flag_h = 0
     flag_s = 0
@@ -34,6 +35,8 @@ class Executor(object):
             self.i_in_out(w)
         elif w3 == 0b1110:
             self.i_ldi(w)
+        elif w3 == 0b1111:
+            self.i_1111(w)
         self.ip += 1
     
     def run(self):
@@ -67,12 +70,19 @@ class Executor(object):
         w2 = (w >> 8) & 0x0F
         if (w2 >> 2) == 3:
             self.i_mov(w)
+    
     def i_1001(self, w):
         c, r = self.code7_reg5(w)
         if c == 0x23:
             self.i_inc_dec(r, 1)
         elif c == 0x2A:
             self.i_inc_dec(r, -1)
+    
+    def i_1111(self, w):
+        c, k = self.code5_const7(w)
+        if c & 0x10 != 0:
+            return
+        self.branch(k, c & 7, c >> 3)
     
     def i_add(self, w, with_carry = False):
         d, r = self.dest5_src5(w)
@@ -125,6 +135,22 @@ class Executor(object):
         d, r = self.dest5_src5(w)
         self.regs[d] = self.regs[r]
     
+    def branch(self, offs, bit, v):
+        if v != self.get_sreg(bit):
+            self.ip += offs if offs < 64 else offs - 128
+    
+    def get_sreg(self, bit):
+        if bit < 4:
+            if bit < 2:
+                return self.flag_z if bit == 1 else self.flag_c
+            else:
+                return self.flag_v if bit == 3 else self.flag_n
+        else:
+            if bit < 6:
+                return self.flag_h if bit == 5 else self.flag_s
+            else:
+                return self.flag_i if bit == 7 else self.flag_t
+    
     def dest4_const(self, w):
         v = (w & 0xF) | ((w >> 4) & 0xF0)
         r = 16 + ((w >> 4) & 0x0F)
@@ -139,6 +165,11 @@ class Executor(object):
         r = (w >> 4) & 0x1F
         c = ((w >> 5) & 0x70) | (w & 0xF)
         return (c, r)
+    
+    def code5_const7(self, w):
+        k = (w >> 3) & 0x7F
+        c = ((w >> 7) & 0x18) | (w & 0x7)
+        return (c, k)
     
     def set_flags_hvc(self, a, b, c):
         a3 = (a >> 3) & 1
@@ -216,5 +247,6 @@ class Peripherals(object):
         res |= ex.flag_s << 4
         res |= ex.flag_h << 5
         res |= ex.flag_t << 6
+        res |= ex.flag_i << 7
         return res
     
