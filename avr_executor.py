@@ -22,13 +22,17 @@ class Executor(object):
         w3 = w >> 12
         if w3 == 0b0000:
             self.i_0000(w)
-        if w3 == 0b0001:
+        elif w3 == 0b0001:
             self.i_0001(w)
-        if w3 == 0b0010:
+        elif w3 == 0b0010:
             self.i_0010(w)
-        if w3 == 0b1011:
+        elif (w3 & 0xE) == 0b0100:
+            self.i_subi(w)
+        elif w3 == 0b1001:
+            self.i_1001(w)
+        elif w3 == 0b1011:
             self.i_in_out(w)
-        if w3 == 0b1110:
+        elif w3 == 0b1110:
             self.i_ldi(w)
         self.ip += 1
     
@@ -49,24 +53,60 @@ class Executor(object):
         w2 = (w >> 8) & 0x0F
         if (w2 >> 2) == 3:
             self.i_add(w)
+        elif (w2 >> 2) == 2:
+            self.i_sub(w, True)
         
     def i_0001(self, w):
         w2 = (w >> 8) & 0x0F
         if (w2 >> 2) == 3:
             self.i_add(w, True)
+        elif (w2 >> 2) == 2:
+            self.i_sub(w)
         
     def i_0010(self, w):
         w2 = (w >> 8) & 0x0F
         if (w2 >> 2) == 3:
             self.i_mov(w)
+    def i_1001(self, w):
+        c, r = self.code7_reg5(w)
+        if c == 0x23:
+            self.i_inc_dec(r, 1)
+        elif c == 0x2A:
+            self.i_inc_dec(r, -1)
     
     def i_add(self, w, with_carry = False):
         d, r = self.dest5_src5(w)
         a = self.regs[d]
         b = self.regs[r]
         res = (a + b + (self.flag_c if with_carry else 0)) & 0xFF
-        self.set_flags(a, b, res)
+        self.set_flags_hvc(a, b, res)
+        self.set_flags_nsz(res)
         self.regs[d] = res
+    
+    def i_sub(self, w, with_carry = False):
+        d, r = self.dest5_src5(w)
+        self.subtract(d, self.regs[r], with_carry)
+    
+    def i_subi(self, w, with_carry = False):
+        r, k = self.dest4_const(w)
+        self.subtract(r, k, with_carry)
+    
+    def subtract(self, rd, b, with_carry):
+        a = self.regs[rd]
+        res = (a - b - (self.flag_c if with_carry else 0)) & 0xFF
+        self.set_flags_hvc(res, b, a)
+        prev_z = self.flag_z
+        self.set_flags_nsz(res)
+        if with_carry:
+            self.flag_z &= prev_z
+        self.regs[rd] = res
+    
+    def i_inc_dec(self, r, k):
+        o = self.regs[r]
+        v = (o + k) & 0xFF
+        self.regs[r] = v
+        self.flag_v = 1 if (k == 1 and o == 0x7F) or (k == -1 and o == 0x80) else 0
+        self.set_flags_nsz(v)
     
     def i_in_out(self, w):
         d = (w >> 11) & 0x01
@@ -78,33 +118,46 @@ class Executor(object):
             self.regs[r] = self.peripherals.read(a)
     
     def i_ldi(self, w):
-        v = (w & 0xF) | ((w >> 4) & 0xF0)
-        r = 16 + ((w >> 4) & 0x0F)
+        r, k = self.dest4_const(w)
         self.regs[r] = v
     
     def i_mov(self, w):
         d, r = self.dest5_src5(w)
         self.regs[d] = self.regs[r]
     
+    def dest4_const(self, w):
+        v = (w & 0xF) | ((w >> 4) & 0xF0)
+        r = 16 + ((w >> 4) & 0x0F)
+        return (r, v)
+    
     def dest5_src5(self, w):
         d = (w >> 4) & 0x1F
         r = ((w >> 5) & 0x10) | (w & 0xF)
         return (d, r)
     
-    def set_flags(self, a, b, res):
+    def code7_reg5(self, w):
+        r = (w >> 4) & 0x1F
+        c = ((w >> 5) & 0x70) | (w & 0xF)
+        return (c, r)
+    
+    def set_flags_hvc(self, a, b, c):
         a3 = (a >> 3) & 1
         b3 = (b >> 3) & 1
-        nr3 = (~res >> 3) & 1
+        nr3 = (~c >> 3) & 1
         self.flag_h = (a3 & b3) | (nr3 & a3) | (nr3 & b3)
         a7 = (a >> 7) & 1
         b7 = (b >> 7) & 1
-        r7 = (res >> 7) & 1
-        nr7 = r7 ^ 1
-        self.flag_v = 1 if a7 == b7 and a7 != r7 else 0
-        self.flag_n = r7
+        nc7 = (~c >> 7) & 1
+        self.flag_v = 1 if a7 == b7 and a7 != nc7 else 0
+        self.flag_c = (a7 & b7) | (nc7 & a7) | (nc7 & b7)
+    
+    def set_flags_nsz(self, r):
+        self.set_flags_ns(r)
+        self.flag_z = r == 0
+    
+    def set_flags_ns(self, r):
+        self.flag_n = (r >> 7) & 1
         self.flag_s = self.flag_v ^ self.flag_n
-        self.flag_z = res == 0
-        self.flag_c = (a7 & b7) | (nr7 & a7) | (nr7 & b7)
 
 class Peripherals(object):
     
