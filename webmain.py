@@ -22,8 +22,10 @@ def main():
     mstdout = StringIO.StringIO()
     sys.stdout = mstdout
     sys.stdin = StringIO.StringIO(base64.b64decode(data['stdin']))
-    ex.run()
-    sys.stdout = ostdout
+    try:
+        ex.run()
+    finally:
+        sys.stdout = ostdout
 
     res = {}
     res['regs'] = ex.regs
