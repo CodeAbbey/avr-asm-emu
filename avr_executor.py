@@ -15,8 +15,15 @@ class Executor(object):
     
     def __init__(self, code):
         self.peripherals = Peripherals(self)
-        self.words = code
+        self.words = [0] * 4096
+        if len(code) > len(self.words):
+            raise Exception("Code is longer than 8K")
+        for i in range(len(code)):
+            self.words[i] = code[i]
         self.regs = [0] * 32
+        self.ram = [0] * 1024
+        self.ram_min_address = 64 + 32
+        self.ram_max_address = 1024 + 64 + 32 - 1
     
     def step(self):
         w = self.words[self.ip]
@@ -35,6 +42,8 @@ class Executor(object):
             self.i_in_out(w)
         elif w3 == 0b1100:
             self.i_rjmp(w)
+        elif w3 == 0b1101:
+            self.i_rjmp(w, True)
         elif w3 == 0b1110:
             self.i_ldi(w)
         elif w3 == 0b1111:
@@ -87,10 +96,16 @@ class Executor(object):
             self.i_inc_dec(r, 1)
         elif c == 0x2A:
             self.i_inc_dec(r, -1)
+        elif c == 0x1F:
+            self.i_push_pop(r, -1)
+        elif c == 0x0F:
+            self.i_push_pop(r, 1)
         elif (c & 0x7E) == 4:
             self.i_lpm(r, c & 1)
         elif c == 0x28 and r == 0x1C:
             self.i_lpm(0, 0)
+        elif c == 0x28 and r == 0x10:
+            self.i_ret()
         else:
             self.not_implemented(w)
     
@@ -151,6 +166,12 @@ class Executor(object):
         d, r = self.dest5_src5(w)
         self.regs[d] = self.regs[r]
     
+    def i_push_pop(self, r, spinc):
+        if spinc < 0:
+            self.stack_operation(self.regs[r])
+        else:
+            self.regs[r] = self.stack_operation()
+    
     def i_lpm(self, r, zinc):
         addr = self.regs[31] * 256 + self.regs[30]
         self.regs[r] = (self.words[addr >> 1] >> ((addr & 1) * 8)) & 0xFF
@@ -159,13 +180,43 @@ class Executor(object):
             self.regs[30] = addr & 0xFF
             self.regs[31] = (addr >> 8) & 0xFF
     
-    def i_rjmp(self, w):
+    def i_rjmp(self, w, is_call = False):
+        if is_call:
+            retaddr = self.ip + 1
+            self.stack_operation(retaddr & 0xFF)
+            self.stack_operation((retaddr >> 8) & 0xFF)
         offset = w & 0xFFF
         self.ip += offset if offset & 0x800 == 0 else (offset - 0x1000)
+    
+    def i_ret(self):
+        pch = self.stack_operation()
+        pcl = self.stack_operation()
+        self.ip = pch * 256 + pcl - 1
+    
+    def stack_operation(self, v = None):
+        if v is None:
+            self.sp_inc(1)
+            return self.get_ram(self.sp)
+        else:
+            self.set_ram(self.sp, v)
+            self.sp_inc(-1)
     
     def branch(self, offs, bit, v):
         if v != self.get_sreg(bit):
             self.ip += offs if offs < 64 else offs - 128
+    
+    def sp_inc(self, v):
+        self.sp += v
+        if self.sp < self.ram_min_address:
+            raise Exception("Stack overflow")
+        elif self.sp > self.ram_max_address:
+            raise Exception("Stack underflow")
+    
+    def get_ram(self, a):
+        return self.ram[a - self.ram_min_address]
+    
+    def set_ram(self, a, v):
+        self.ram[a - self.ram_min_address] = v & 0xFF
     
     def get_sreg(self, bit):
         if bit < 4:
