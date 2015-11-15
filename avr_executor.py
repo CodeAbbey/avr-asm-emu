@@ -33,10 +33,14 @@ class Executor(object):
             self.i_1001(w)
         elif w3 == 0b1011:
             self.i_in_out(w)
+        elif w3 == 0b1100:
+            self.i_rjmp(w)
         elif w3 == 0b1110:
             self.i_ldi(w)
         elif w3 == 0b1111:
             self.i_1111(w)
+        else:
+            self.not_implemented(w)
         self.ip += 1
     
     def run(self):
@@ -58,6 +62,8 @@ class Executor(object):
             self.i_add(w)
         elif (w2 >> 2) == 2:
             self.i_sub(w, True)
+        else:
+            self.not_implemented(w)
         
     def i_0001(self, w):
         w2 = (w >> 8) & 0x0F
@@ -65,11 +71,15 @@ class Executor(object):
             self.i_add(w, True)
         elif (w2 >> 2) == 2:
             self.i_sub(w)
+        else:
+            self.not_implemented(w)
         
     def i_0010(self, w):
         w2 = (w >> 8) & 0x0F
         if (w2 >> 2) == 3:
             self.i_mov(w)
+        else:
+            self.not_implemented(w)
     
     def i_1001(self, w):
         c, r = self.code7_reg5(w)
@@ -77,11 +87,17 @@ class Executor(object):
             self.i_inc_dec(r, 1)
         elif c == 0x2A:
             self.i_inc_dec(r, -1)
+        elif (c & 0x7E) == 4:
+            self.i_lpm(r, c & 1)
+        elif c == 0x28 and r == 0x1C:
+            self.i_lpm(0, 0)
+        else:
+            self.not_implemented(w)
     
     def i_1111(self, w):
         c, k = self.code5_const7(w)
         if c & 0x10 != 0:
-            return
+            self.not_implemented(w)
         self.branch(k, c & 7, c >> 3)
     
     def i_add(self, w, with_carry = False):
@@ -129,11 +145,23 @@ class Executor(object):
     
     def i_ldi(self, w):
         r, k = self.dest4_const(w)
-        self.regs[r] = v
+        self.regs[r] = k
     
     def i_mov(self, w):
         d, r = self.dest5_src5(w)
         self.regs[d] = self.regs[r]
+    
+    def i_lpm(self, r, zinc):
+        addr = self.regs[31] * 256 + self.regs[30]
+        self.regs[r] = (self.words[addr >> 1] >> ((addr & 1) * 8)) & 0xFF
+        if zinc != 0:
+            addr += 1
+            self.regs[30] = addr & 0xFF
+            self.regs[31] = (addr >> 8) & 0xFF
+    
+    def i_rjmp(self, w):
+        offset = w & 0xFFF
+        self.ip += offset if offset & 0x800 == 0 else (offset - 0x1000)
     
     def branch(self, offs, bit, v):
         if v != self.get_sreg(bit):
@@ -189,6 +217,9 @@ class Executor(object):
     def set_flags_ns(self, r):
         self.flag_n = (r >> 7) & 1
         self.flag_s = self.flag_v ^ self.flag_n
+    
+    def not_implemented(self, w):
+        raise Exception("Not implemented instruction %04X" % w)
 
 class Peripherals(object):
     
