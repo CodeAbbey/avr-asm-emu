@@ -12,6 +12,7 @@ class Executor(object):
     flag_n = 0
     flag_z = 0
     flag_c = 0
+    flag_names = 'cznvshti'
     
     def __init__(self, code):
         self.peripherals = Peripherals(self)
@@ -64,6 +65,14 @@ class Executor(object):
             print "%02X" % self.regs[i],
         print
         print "ip=%04X, sp=%04X" % (self.ip, self.sp)
+        print "flags:", self.flagStr('i'), self.flagStr('t'), \
+            self.flagStr('h'), self.flagStr('s'), \
+            self.flagStr('v'), self.flagStr('n'), \
+            self.flagStr('z'), self.flagStr('c')
+    
+    def flagStr(self, c):
+        v = getattr(self, 'flag_' + c)
+        return c.upper() if v == 1 else '-'
     
     def i_0000(self, w):
         w2 = (w >> 8) & 0x0F
@@ -106,6 +115,8 @@ class Executor(object):
             self.i_lpm(0, 0)
         elif c == 0x28 and r == 0x10:
             self.i_ret()
+        elif w & 0xF0F == 0x408:
+            self.set_sreg(r & 7, (r >> 3) ^ 1)
         else:
             self.not_implemented(w)
     
@@ -219,16 +230,10 @@ class Executor(object):
         self.ram[a - self.ram_min_address] = v & 0xFF
     
     def get_sreg(self, bit):
-        if bit < 4:
-            if bit < 2:
-                return self.flag_z if bit == 1 else self.flag_c
-            else:
-                return self.flag_v if bit == 3 else self.flag_n
-        else:
-            if bit < 6:
-                return self.flag_h if bit == 5 else self.flag_s
-            else:
-                return self.flag_i if bit == 7 else self.flag_t
+        return getattr(self, 'flag_' + self.flag_names[bit])
+    
+    def set_sreg(self, bit, v):
+        setattr(self, 'flag_' + self.flag_names[bit], v)
     
     def dest4_const(self, w):
         v = (w & 0xF) | ((w >> 4) & 0xF0)
@@ -253,12 +258,12 @@ class Executor(object):
     def set_flags_hvc(self, a, b, c):
         a3 = (a >> 3) & 1
         b3 = (b >> 3) & 1
-        nr3 = (~c >> 3) & 1
-        self.flag_h = (a3 & b3) | (nr3 & a3) | (nr3 & b3)
+        nc3 = (~c >> 3) & 1
+        self.flag_h = (a3 & b3) | (nc3 & a3) | (nc3 & b3)
         a7 = (a >> 7) & 1
         b7 = (b >> 7) & 1
         nc7 = (~c >> 7) & 1
-        self.flag_v = 1 if a7 == b7 and a7 != nc7 else 0
+        self.flag_v = 1 if a7 == b7 == nc7 else 0
         self.flag_c = (a7 & b7) | (nc7 & a7) | (nc7 & b7)
     
     def set_flags_nsz(self, r):
