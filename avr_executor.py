@@ -35,6 +35,8 @@ class Executor(object):
             self.i_0001(w)
         elif w3 == 0b0010:
             self.i_0010(w)
+        elif w3 == 0b0011:
+            self.i_cpi(w)
         elif (w3 & 0xE) == 0b0100:
             self.i_subi(w)
         elif w3 == 0b1001:
@@ -75,20 +77,26 @@ class Executor(object):
         return c.upper() if v == 1 else '-'
     
     def i_0000(self, w):
-        w2 = (w >> 8) & 0x0F
-        if (w2 >> 2) == 3:
+        w2h = (w >> 10) & 0x03
+        if w2h == 1:
+            self.i_cp(w, True)
+        elif w2h == 3:
             self.i_add(w)
-        elif (w2 >> 2) == 2:
+        elif w2h == 2:
             self.i_sub(w, True)
         else:
             self.not_implemented(w)
         
     def i_0001(self, w):
-        w2 = (w >> 8) & 0x0F
-        if (w2 >> 2) == 3:
-            self.i_add(w, True)
-        elif (w2 >> 2) == 2:
+        w2h = (w >> 10) & 0x03
+        if w2h == 0:
+            self.i_cpse(w)
+        elif w2h == 1:
+            self.i_cp(w)
+        elif w2h == 2:
             self.i_sub(w)
+        elif w2h == 3:
+            self.i_add(w, True)
         else:
             self.not_implemented(w)
         
@@ -137,11 +145,25 @@ class Executor(object):
     
     def i_sub(self, w, with_carry = False):
         d, r = self.dest5_src5(w)
-        self.subtract(d, self.regs[r], with_carry)
+        self.regs[d] = self.subtract(d, self.regs[r], with_carry)
     
     def i_subi(self, w, with_carry = False):
         r, k = self.dest4_const(w)
-        self.subtract(r, k, with_carry)
+        self.regs[r] = self.subtract(r, k, with_carry)
+    
+    def i_cp(self, w, with_carry = False):
+        d, r = self.dest5_src5(w)
+        self.subtract(d, self.regs[r], with_carry)
+    
+    def i_cpi(self, w):
+        r, k = self.dest4_const(w)
+        self.subtract(r, k, False)
+    
+    def i_cpse(self, w):
+        d, r = self.dest5_src5(w)
+        if self.regs[d] == self.regs[r]:
+            next_code_size = self.instruction_size(self.words[self.ip + 1])
+            self.ip += next_code_size
     
     def subtract(self, rd, b, with_carry):
         a = self.regs[rd]
@@ -151,7 +173,7 @@ class Executor(object):
         self.set_flags_nsz(res)
         if with_carry:
             self.flag_z &= prev_z
-        self.regs[rd] = res
+        return res
     
     def i_inc_dec(self, r, k):
         o = self.regs[r]
@@ -273,6 +295,9 @@ class Executor(object):
     def set_flags_ns(self, r):
         self.flag_n = (r >> 7) & 1
         self.flag_s = self.flag_v ^ self.flag_n
+    
+    def instruction_size(self, w):
+        return 2 if (w & 0xFC0F == 0x9000) or (w & 0xFE0C == 0x940C) else 1
     
     def not_implemented(self, w):
         raise Exception("Not implemented instruction %04X" % w)
