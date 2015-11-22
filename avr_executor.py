@@ -109,22 +109,34 @@ class Executor(object):
     
     def i_1001(self, w):
         c, r = self.code7_reg5(w)
-        if c == 0x23:
-            self.i_inc_dec(r, 1)
-        elif c == 0x2A:
-            self.i_inc_dec(r, -1)
+        if c >> 4 == 2:
+            self.i_1001_010(c, r)
         elif c == 0x1F:
             self.i_push_pop(r, -1)
         elif c == 0x0F:
             self.i_push_pop(r, 1)
         elif (c & 0x7E) == 4:
             self.i_lpm(r, c & 1)
+        elif w & 0xF0F == 0x408:
+            self.set_sreg(r & 7, (r >> 3) ^ 1)
+        else:
+            self.not_implemented(w)
+    
+    def i_1001_010(self, c, r):
+        if c == 0x23:
+            self.i_inc_dec(r, 1)
+        elif c == 0x2A:
+            self.i_inc_dec(r, -1)
         elif c == 0x28 and r == 0x1C:
             self.i_lpm(0, 0)
         elif c == 0x28 and r == 0x10:
             self.i_ret()
-        elif w & 0xF0F == 0x408:
-            self.set_sreg(r & 7, (r >> 3) ^ 1)
+        elif c & 0xE == 0:
+            self.i_com_neg(r, c & 1)
+        elif c == 0x22:
+            self.i_swap(r)
+        elif c & 7 > 4:
+            self.i_shift_right(r, c & 3)
         else:
             self.not_implemented(w)
     
@@ -175,6 +187,27 @@ class Executor(object):
             self.flag_z &= prev_z
         return res
     
+    def i_com_neg(self, r, c):
+        a = 0xFF + c
+        b = self.regs[r]
+        res = (a - b) & 0xFF
+        self.regs[r] = res
+        self.set_flags_hvc(res, b, a)
+        self.set_flags_nsz(res)
+        self.flag_c = 1 if c == 0 or res != 0 else 0
+    
+    def i_shift_right(self, r, c):
+        v = self.regs[r]
+        hbit = 0 if c == 2 else (self.flag_c if c == 3 else v >> 7)
+        self.flag_c = v & 1
+        self.flag_n = hbit
+        self.flag_v = self.flag_n ^ self.flag_c
+        self.flag_s = self.flag_n ^ self.flag_v
+        v = (v >> 1) + (hbit << 7)
+        print "hbit %s" % hbit
+        self.flag_z = 1 if v == 0 else 0
+        self.regs[r] = v
+    
     def i_inc_dec(self, r, k):
         o = self.regs[r]
         v = (o + k) & 0xFF
@@ -190,6 +223,10 @@ class Executor(object):
             self.peripherals.write(a, self.regs[r])
         else:
             self.regs[r] = self.peripherals.read(a)
+    
+    def i_swap(self, r):
+        v = self.regs[r]
+        self.regs[r] = (v >> 4) + ((v & 0xF) << 4)
     
     def i_ldi(self, w):
         r, k = self.dest4_const(w)
