@@ -39,6 +39,8 @@ class Executor(object):
             self.i_cpi(w)
         elif (w3 & 0xE) == 0b0100:
             self.i_subi(w)
+        elif (w3 & 0xE) == 0b0110:
+            self.i_bitwiseim(w)
         elif w3 == 0b1001:
             self.i_1001(w)
         elif w3 == 0b1011:
@@ -101,11 +103,15 @@ class Executor(object):
             self.not_implemented(w)
         
     def i_0010(self, w):
-        w2 = (w >> 8) & 0x0F
-        if (w2 >> 2) == 3:
+        w2h = (w >> 10) & 0x03
+        if w2h == 3:
             self.i_mov(w)
-        else:
-            self.not_implemented(w)
+        elif w2h == 0:
+            self.i_bitwise(w, 'and')
+        elif w2h == 1:
+            self.i_bitwise(w, 'eor')
+        elif w2h == 2:
+            self.i_bitwise(w, 'or')
     
     def i_1001(self, w):
         c, r = self.code7_reg5(w)
@@ -214,6 +220,29 @@ class Executor(object):
         self.regs[r] = v
         self.flag_v = 1 if (k == 1 and o == 0x7F) or (k == -1 and o == 0x80) else 0
         self.set_flags_nsz(v)
+    
+    def i_bitwise(self, w, op):
+        d, r = self.dest5_src5(w)
+        a = self.regs[d]
+        b = self.regs[r]
+        if op == 'and':
+            a &= b
+        elif op == 'eor':
+            a ^= b
+        else:
+            a |= b
+        self.set_flags_bitwise(a)
+        self.regs[d] = a
+    
+    def i_bitwiseim(self, w):
+        r, k = self.dest4_const(w)
+        v = self.regs[r]
+        if w & 0x1000 != 0:
+            v &= k
+        else:
+            v |= k
+        self.set_flags_bitwise(v)
+        self.regs[r] = v
     
     def i_in_out(self, w):
         d = (w >> 11) & 0x01
@@ -332,6 +361,10 @@ class Executor(object):
     def set_flags_ns(self, r):
         self.flag_n = (r >> 7) & 1
         self.flag_s = self.flag_v ^ self.flag_n
+    
+    def set_flags_bitwise(self, r):
+        self.flag_v = 0
+        self.set_flags_nsz(r)
     
     def instruction_size(self, w):
         return 2 if (w & 0xFC0F == 0x9000) or (w & 0xFE0C == 0x940C) else 1
